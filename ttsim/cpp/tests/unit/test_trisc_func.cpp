@@ -586,3 +586,79 @@ TEST_F(TriscFuncTest, ExecRIns_ReturnsPcPlus4_ForArithmetic)
     auto ins = make_ins("ADD", {10, 11}, {12}, {}, 0xABCDu);
     EXPECT_EQ(func_->exec_r_ins(ins, 0), static_cast<int>(0xABCDu) + 4);
 }
+
+// ---------------------------------------------------------------------------
+// CSRRC: clear bits in CSR
+// ---------------------------------------------------------------------------
+
+TEST_F(TriscFuncTest, ExecRIns_CSRRC_ClearsBits)
+{
+    // CSR 7 = 0x0F0F; rs1 (x10) = 0x0F00 (bits to clear)
+    regs_->write_csr(7, 0x0F0F);
+    regs_->write_riscgpr(10, 0x0F00);
+    auto ins = make_ins("CSRRC", {10}, {11}, {}, 0x1000u);
+    ins.set_attr({{"csr", 7}});
+    func_->exec_r_ins(ins, 0);
+    // rd = old CSR value
+    EXPECT_EQ(regs_->read_riscgpr(11), 0x0F0F);
+    // CSR has 0x0F00 bits cleared: 0x0F0F & ~0x0F00 = 0x000F
+    EXPECT_EQ(regs_->read_csr(7), 0x000F);
+}
+
+// ---------------------------------------------------------------------------
+// SW to CFG address: apply_cfg_write_effects sets vld/bank masks on DEST reg
+// ---------------------------------------------------------------------------
+
+TEST_F(TriscFuncTest, ExecRIns_SW_CfgReg_SideEffects)
+{
+    // Register a DEST_TARGET_REG_CFG_MATH name at cfg word-offset 2
+    // (byte addr 0x1008 = cfg_start 0x1000 + 2*4).
+    spl_regs_->register_cfg_reg("DEST_TARGET_REG_CFG_MATH_SEC0_Offset",
+                                /*offset=*/2, /*shamt=*/0,
+                                /*mask=*/static_cast<int32_t>(0xFFFFFFFF));
+
+    // Register the disable_auto_bank_id_toggle name at offset 3 so that
+    // is_dst_reg_programmed() can return true when cfg[3] != 0.
+    spl_regs_->register_cfg_reg(
+        "UNPACK_TO_DEST_DVALID_CTRL_disable_auto_bank_id_toggle",
+        /*offset=*/3, /*shamt=*/0, /*mask=*/static_cast<int32_t>(0xFFFFFFFF));
+
+    // Prime cfg[3] = 1 so is_dst_reg_programmed() returns true.
+    spl_regs_->write_reg(3, 1, TensixSplReg::SplRegType::CFG);
+
+    // SW: base x5 = 0x1000, imm = 8, val x6 = 512 (>= BANK_UPDATE_THRESHOLD)
+    // → addr = 0x1000 + 8 = 0x1008 → cfg offset 2; value written = 512
+    regs_->write_riscgpr(5, 0x1000);
+    regs_->write_riscgpr(6, TensixSplReg::BANK_UPDATE_THRESHOLD);
+    auto ins = make_ins("SW", {5, 6}, {}, {8}, 0x2000u);
+    func_->exec_r_ins(ins, 0);
+
+    // apply_cfg_write_effects should have set vld/bank masks for DST (RegIndex::DST=3)
+    ASSERT_TRUE(ins.has_vld_upd_mask(static_cast<int>(RegIndex::DST)));
+    EXPECT_EQ(ins.get_vld_upd_mask(static_cast<int>(RegIndex::DST)), 1);
+    ASSERT_TRUE(ins.has_bank_upd_mask(static_cast<int>(RegIndex::DST)));
+    EXPECT_EQ(ins.get_bank_upd_mask(static_cast<int>(RegIndex::DST)), 1);
+}
+
+// ---------------------------------------------------------------------------
+// SW to tile-counter RESET field: TILES_AVAILABLE zeroed, SPACE_AVAILABLE set
+// ---------------------------------------------------------------------------
+
+TEST_F(TriscFuncTest, ExecRIns_SW_TileCounter_Reset)
+{
+    // Prime tile counter 0: BUFFER_CAPACITY=10, TILES_AVAILABLE=7
+    using TCF = TensixSplReg::TileCounterField;
+    spl_regs_->write_tile_counter(0, TCF::BUFFER_CAPACITY,   10);
+    spl_regs_->write_tile_counter(0, TCF::TILES_AVAILABLE,   7);
+
+    // RESET field for buf_idx=0 is spl_mmr.offset=1 (field 1 of the 8-field block).
+    // byte addr = tile_cnt_start + 1*4 = 0x30000 + 4 = 0x30004
+    regs_->write_riscgpr(8, 0x30000);  // base register
+    regs_->write_riscgpr(9, 1);        // value to write (trigger reset)
+    auto ins = make_ins("SW", {8, 9}, {}, {4}, 0x2000u);
+    func_->exec_r_ins(ins, 0);
+
+    // After RESET: TILES_AVAILABLE=0; SPACE_AVAILABLE = BUFFER_CAPACITY - 0 = 10
+    EXPECT_EQ(spl_regs_->read_tile_counter(0, TCF::TILES_AVAILABLE), 0);
+    EXPECT_EQ(spl_regs_->read_tile_counter(0, TCF::SPACE_AVAILABLE), 10);
+}
