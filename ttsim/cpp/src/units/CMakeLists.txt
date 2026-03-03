@@ -11,4 +11,5 @@ target_sources(neosim PRIVATE
   tensix_func.cpp
   rob.cpp
   replay.cpp
+  thread_unit.cpp
 )

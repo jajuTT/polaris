@@ -38,4 +38,5 @@ neosim_unit_test(test_tensix_func    test_tensix_func.cpp)
 # Track 6: Thread execution engine data models
 neosim_unit_test(test_rob          test_rob.cpp)
 neosim_unit_test(test_replay       test_replay.cpp)
+neosim_unit_test(test_thread_unit  test_thread_unit.cpp)
 # neosim_unit_test(test_decoder_service test_decoder_service.cpp)
