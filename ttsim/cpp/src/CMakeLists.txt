@@ -1,8 +1,8 @@
 # NeoSim library.
 #
 # Migration track progression:
-#   Track 2:  isa/instruction.cpp, isa/elf_loader.cpp  ← current
-#   Track 3:  add units/tensix_reg.cpp, units/risc_reg.cpp, ...
+#   Track 2:  isa/instruction.cpp, isa/elf_loader.cpp  ← complete
+#   Track 3:  units/tensix_reg.cpp, units/risc_reg.cpp, ...  ← current
 #   Track 4:  add units/scratchpad.cpp
 #   Track 5a: add risc/trisc_func.cpp, risc/trisc_regs.cpp, risc/trisc_mem.cpp
 #   Track 5b: add units/tensix_func.cpp
@@ -37,6 +37,6 @@ target_link_libraries(neosim PUBLIC
 )
 
 add_subdirectory(isa)
-# Track 3+: add_subdirectory(units)
-# Track 5a: add_subdirectory(risc)
+add_subdirectory(units)
+add_subdirectory(risc)
 # Track 8:  add_subdirectory(core)

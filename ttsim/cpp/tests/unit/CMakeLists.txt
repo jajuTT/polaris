@@ -19,11 +19,12 @@ endfunction()
 # Track 2: Instruction representation
 neosim_unit_test(test_instruction test_instruction.cpp)
 
-# Track 3+: uncomment as units are implemented
-# neosim_unit_test(test_tensix_reg   test_tensix_reg.cpp)
-# neosim_unit_test(test_risc_reg     test_risc_reg.cpp)
-# neosim_unit_test(test_pipe_resource test_pipe_resource.cpp)
-# neosim_unit_test(test_tensix_spl_reg test_tensix_spl_reg.cpp)
+# Track 3: Register file data models
+neosim_unit_test(test_tensix_reg     test_tensix_reg.cpp)
+neosim_unit_test(test_risc_reg       test_risc_reg.cpp)
+neosim_unit_test(test_pipe_resource  test_pipe_resource.cpp)
+neosim_unit_test(test_tensix_spl_reg test_tensix_spl_reg.cpp)
+neosim_unit_test(test_trisc_regs     test_trisc_regs.cpp)
 # neosim_unit_test(test_rob          test_rob.cpp)
 # neosim_unit_test(test_replay       test_replay.cpp)
 # neosim_unit_test(test_scratchpad   test_scratchpad.cpp)
