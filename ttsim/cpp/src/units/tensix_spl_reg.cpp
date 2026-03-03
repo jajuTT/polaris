@@ -232,4 +232,151 @@ void TensixSplReg::print_state(SplRegType type) const {
     }
 }
 
+// ----------------------------------------------------------------
+// Cfg register name registry
+// ----------------------------------------------------------------
+
+void TensixSplReg::register_cfg_reg(const std::string& name,
+                                     int offset, int shamt, int32_t mask)
+{
+    cfg_reg_names_[name] = CfgRegMeta{offset, shamt, mask};
+    cfg_names_at_offset_[offset].push_back(name);
+}
+
+int32_t TensixSplReg::read_cfg_reg(const std::string& name) const {
+    const auto it = cfg_reg_names_.find(name);
+    if (it == cfg_reg_names_.end()) return 0; // not registered
+
+    const CfgRegMeta& m = it->second;
+    if (m.offset < 0 || m.offset >= static_cast<int>(cfg_.size())) return 0;
+    const int32_t raw = cfg_[m.offset];
+    if (raw == -1) return 0; // uninitialized
+    if (m.mask == 0) return 0;
+    return (raw & m.mask) >> m.shamt;
+}
+
+int32_t TensixSplReg::get_cfg_reg_max_possible_value(const std::string& name) const {
+    const auto it = cfg_reg_names_.find(name);
+    if (it == cfg_reg_names_.end()) return 0;
+
+    int32_t mask   = it->second.mask;
+    int     shamt  = it->second.shamt;
+    if (mask == 0) return 0;
+
+    // Shift out the LSBs and count bits in the remaining field.
+    const int32_t shifted = (mask >> shamt);
+    if (shifted <= 0) return 0;
+    int bits = 0;
+    int32_t m = shifted;
+    while (m) { ++bits; m >>= 1; }
+    return (1 << bits) - 1;
+}
+
+TensixSplReg::CfgRegUpdateClass
+TensixSplReg::get_cfg_reg_update_class(int offset) const
+{
+    const auto it = cfg_names_at_offset_.find(offset);
+    if (it == cfg_names_at_offset_.end()) return CfgRegUpdateClass::UNKNOWN;
+
+    // Check DEST_TARGET_REG_CFG_MATH
+    for (const auto& name : it->second) {
+        if (name == "DEST_TARGET_REG_CFG_MATH_SEC0_Offset" ||
+            name == "DEST_TARGET_REG_CFG_MATH_SEC1_Offset" ||
+            name == "DEST_TARGET_REG_CFG_MATH_SEC2_Offset" ||
+            name == "DEST_TARGET_REG_CFG_MATH_SEC3_Offset") {
+            return CfgRegUpdateClass::DEST_TARGET_REG_CFG_MATH;
+        }
+    }
+
+    // Check DEST_DVALID_CTRL
+    static const std::string disable_suffix =
+        "_DEST_DVALID_CTRL_disable_auto_bank_id_toggle";
+    for (const auto& name : it->second) {
+        if (name.size() >= disable_suffix.size() &&
+            name.compare(name.size() - disable_suffix.size(),
+                         disable_suffix.size(), disable_suffix) == 0) {
+            return CfgRegUpdateClass::DEST_DVALID_CTRL;
+        }
+    }
+
+    // Check BUFFER_DESCRIPTOR_TABLE_REG
+    for (const auto& name : it->second) {
+        if (name.rfind("BUFFER_DESCRIPTOR_TABLE_REG", 0) == 0) {
+            return CfgRegUpdateClass::BUFFER_DESCRIPTOR_TABLE_REG;
+        }
+    }
+
+    return CfgRegUpdateClass::UNKNOWN;
+}
+
+TensixSplReg::CondValidInfo
+TensixSplReg::get_dst_reg_cond_valids(int offset) const
+{
+    static const std::string disable_suffix =
+        "_DEST_DVALID_CTRL_disable_auto_bank_id_toggle";
+
+    // Find the prefix from the name at this offset that ends with disable_suffix.
+    const auto it = cfg_names_at_offset_.find(offset);
+    if (it == cfg_names_at_offset_.end()) return {};
+
+    std::string prefix;
+    for (const auto& name : it->second) {
+        if (name.size() >= disable_suffix.size() &&
+            name.compare(name.size() - disable_suffix.size(),
+                         disable_suffix.size(), disable_suffix) == 0) {
+            prefix = name.substr(0, name.size() - disable_suffix.size());
+            break;
+        }
+    }
+    if (prefix.empty()) return {};
+
+    // Compute context_id relative to the UNPACK_TO_DEST offset.
+    int base_offset = offset; // fallback
+    const auto base_it = cfg_reg_names_.find(
+        "UNPACK_TO_DEST_DVALID_CTRL_disable_auto_bank_id_toggle");
+    if (base_it != cfg_reg_names_.end()) {
+        base_offset = base_it->second.offset;
+    }
+    const int context_id = offset - base_offset;
+
+    // Read sub-fields using the same prefix.
+    const int32_t wait_mask     = read_cfg_reg(prefix + "_DEST_DVALID_CTRL_wait_mask");
+    const int32_t wait_polarity = read_cfg_reg(prefix + "_DEST_DVALID_CTRL_wait_polarity");
+    const int32_t toggle_mask   = read_cfg_reg(prefix + "_DEST_DVALID_CTRL_toggle_mask");
+
+    // apply toggle: write_val[i] = toggle_mask[i] ? !wait_polarity[i] : wait_polarity[i]
+    int write_mask = 0;
+    for (int i = 0; i < 4; ++i) {
+        const int vbit = (wait_polarity >> i) & 1;
+        const int tbit = (toggle_mask   >> i) & 1;
+        write_mask |= ((tbit ? (1 - vbit) : vbit) << i);
+    }
+    const int read_mask = wait_polarity & wait_mask;
+
+    return {context_id, read_mask, write_mask};
+}
+
+bool TensixSplReg::is_dst_reg_programmed() const {
+    static const std::string names[4] = {
+        "UNPACK_TO_DEST_DVALID_CTRL_disable_auto_bank_id_toggle",
+        "MATH_DEST_DVALID_CTRL_disable_auto_bank_id_toggle",
+        "SFPU_DEST_DVALID_CTRL_disable_auto_bank_id_toggle",
+        "PACK_DEST_DVALID_CTRL_disable_auto_bank_id_toggle",
+    };
+    for (const auto& name : names) {
+        const auto it = cfg_reg_names_.find(name);
+        if (it != cfg_reg_names_.end()) {
+            const int32_t v = (it->second.offset < static_cast<int>(cfg_.size()))
+                              ? cfg_[it->second.offset] : -1;
+            if (v != -1 && v != 0) return true;
+        }
+    }
+    return false;
+}
+
+bool TensixSplReg::update_dst_reg_bank_id(int offset) const {
+    if (offset < 0 || offset >= static_cast<int>(cfg_.size())) return false;
+    return cfg_[offset] >= BANK_UPDATE_THRESHOLD;
+}
+
 } // namespace neosim::units

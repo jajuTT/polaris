@@ -5,6 +5,7 @@
 #include <array>
 #include <cassert>
 #include <cstdint>
+#include <map>
 #include <string>
 #include <vector>
 
@@ -169,6 +170,64 @@ public:
 
     void print_state(SplRegType type) const;
 
+    // ----------------------------------------------------------------
+    // Cfg register name registry — populated by callers (e.g. TensixFunc)
+    // with SHAMT / MASK metadata from the architecture YAML.
+    // All methods below are no-ops / return defaults when a name is not
+    // registered.
+    // ----------------------------------------------------------------
+
+    /// Register a named cfg register with its word-offset inside the cfg
+    /// region, the LSB shift (SHAMT) and the bitfield mask.
+    /// @param name   Architecture-specific register name (e.g. "THCON_UNPACKER0_REG0_OUT_DATA_FORMAT")
+    /// @param offset Word offset from cfg_start (= (byte_addr - cfg_start) / 4)
+    /// @param shamt  LSB position of the bitfield within the 32-bit word
+    /// @param mask   Full 32-bit mask for the bitfield (NOT shifted)
+    void register_cfg_reg(const std::string& name, int offset, int shamt, int32_t mask);
+
+    /// Read a named cfg register, applying SHAMT / MASK extraction.
+    /// Returns 0 if the name is not registered or the backing word is -1.
+    int32_t read_cfg_reg(const std::string& name) const;
+
+    /// Return the maximum possible value for the named bitfield.
+    /// = (2 ^ num_bits_in_mask) - 1.  Returns 0 if the name is not registered.
+    int32_t get_cfg_reg_max_possible_value(const std::string& name) const;
+
+    // ----------------------------------------------------------------
+    // Cfg register update-class classification — used by TensixFunc
+    // ----------------------------------------------------------------
+
+    /// Cfg register update class returned by get_cfg_reg_update_class.
+    enum class CfgRegUpdateClass {
+        UNKNOWN,
+        DEST_TARGET_REG_CFG_MATH,
+        DEST_DVALID_CTRL,
+        BUFFER_DESCRIPTOR_TABLE_REG,
+    };
+
+    /// Conditional-valid info returned by get_dst_reg_cond_valids.
+    struct CondValidInfo {
+        int context_id = 0;  ///< ThreadMap context index (0-3)
+        int read_mask  = 0;  ///< condChkVldUpdVal value for DST register
+        int write_mask = 0;  ///< condWriVldUpdVal value for DST register
+    };
+
+    /// Classify the update-class of the cfg register at word-offset @p offset.
+    CfgRegUpdateClass get_cfg_reg_update_class(int offset) const;
+
+    /// Compute the conditional-valid info for a DEST_DVALID_CTRL register.
+    /// @pre get_cfg_reg_update_class(offset) == DEST_DVALID_CTRL
+    CondValidInfo get_dst_reg_cond_valids(int offset) const;
+
+    /// True when any of the four DEST_DVALID_CTRL disable_auto_bank_id_toggle
+    /// registers has a value that is neither -1 (uninitialized) nor 0.
+    bool is_dst_reg_programmed() const;
+
+    /// True when cfg[offset] >= BANK_UPDATE_THRESHOLD (512).
+    bool update_dst_reg_bank_id(int offset) const;
+
+    static constexpr int32_t BANK_UPDATE_THRESHOLD = 512;
+
 private:
     Config cfg_params_;
 
@@ -196,6 +255,19 @@ private:
     static constexpr std::array<int32_t, TILE_CNT_FIELDS> TILE_CNT_INIT = {
         -1, -1, 0, 0, -1, -1, -1, -1
     };
+
+    // ----------------------------------------------------------------
+    // Cfg register name registry (populated by register_cfg_reg)
+    // ----------------------------------------------------------------
+
+    struct CfgRegMeta {
+        int     offset = 0;
+        int     shamt  = 0;
+        int32_t mask   = 0;
+    };
+
+    std::map<std::string, CfgRegMeta>       cfg_reg_names_;
+    std::map<int, std::vector<std::string>> cfg_names_at_offset_;
 };
 
 } // namespace neosim::units
