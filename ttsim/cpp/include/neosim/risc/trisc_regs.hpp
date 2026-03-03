@@ -18,8 +18,9 @@ namespace neosim::risc {
 ///   trisc_id[1]  — Thread identifier register.
 ///
 /// "Temporary" registers {0,2,5,6,7,28,29,30,31} must be written before they
-/// are read (attempting to read -1 asserts).  All other riscgpr registers
-/// auto-zero on first read if still at the sentinel value -1.
+/// are read (assert fires on first read if not yet written).  All other riscgpr
+/// registers auto-zero on first read if not yet written.
+/// Initialization is tracked via a separate bool array, so -1 is a valid value.
 ///
 /// `is_mmr(addr)` maps a byte address into a register type + word offset,
 /// enabling TRISC load/store instructions to detect MMR accesses.
@@ -71,8 +72,8 @@ public:
     /// Read a RISC-V GPR.
     ///
     /// For "temporary" registers {0,2,5,6,7,28,29,30,31}: asserts if the
-    /// register has not been written yet (value still -1).
-    /// For all other registers: auto-zeros on first read if value is -1.
+    /// register has not been written yet.
+    /// For all other registers: auto-zeros on first read if not yet written.
     int32_t read_riscgpr(int r);
 
     /// Write a RISC-V GPR.
@@ -113,6 +114,7 @@ private:
     static const std::set<int> TEMP_REGS; // {0, 2, 5, 6, 7, 28, 29, 30, 31}
 
     std::array<int32_t, NUM_RISCGPR>   riscgpr_{};
+    std::array<bool,    NUM_RISCGPR>   riscgpr_initialized_{}; ///< tracks which GPRs have been written
     std::array<int32_t, NUM_CSR>       csr_{};
     std::array<int32_t, NUM_TRISC_ID>  trisc_id_{};
 };

@@ -14,14 +14,18 @@ TriscRegs::TriscRegs(const Config& cfg)
     : core_id_(cfg.core_id)
     , thread_id_(cfg.thread_id)
 {
-    riscgpr_.fill(-1);
+    riscgpr_.fill(0);
+    riscgpr_initialized_.fill(false);
     csr_.fill(-1);
     trisc_id_.fill(-1);
 
-    // Architectural initial values
-    riscgpr_[0] = 0;                         // x0 = zero register
-    riscgpr_[2] = static_cast<int32_t>(cfg.stack_ptr);   // x2 = sp
-    riscgpr_[3] = static_cast<int32_t>(cfg.global_ptr);  // x3 = gp
+    // Architectural initial values (mark as initialized)
+    riscgpr_[0] = 0;                                       // x0 = zero register
+    riscgpr_[2] = static_cast<int32_t>(cfg.stack_ptr);    // x2 = sp
+    riscgpr_[3] = static_cast<int32_t>(cfg.global_ptr);   // x3 = gp
+    riscgpr_initialized_[0] = true;
+    riscgpr_initialized_[2] = true;
+    riscgpr_initialized_[3] = true;
 
     trisc_id_[0] = cfg.thread_id;
 }
@@ -33,11 +37,12 @@ TriscRegs::TriscRegs(const Config& cfg)
 int32_t TriscRegs::read_riscgpr(int r) {
     assert(r >= 0 && r < NUM_RISCGPR);
     if (TEMP_REGS.count(r)) {
-        // Temporary registers must be initialised before read.
-        assert(riscgpr_[r] != -1);
-    } else if (riscgpr_[r] == -1) {
+        // Temporary registers must be written before they are read.
+        assert(riscgpr_initialized_[r]);
+    } else if (!riscgpr_initialized_[r]) {
         // Non-temporary registers auto-zero on first read.
         riscgpr_[r] = 0;
+        riscgpr_initialized_[r] = true;
     }
     return riscgpr_[r];
 }
@@ -45,6 +50,7 @@ int32_t TriscRegs::read_riscgpr(int r) {
 void TriscRegs::write_riscgpr(int r, int32_t value) {
     assert(r >= 0 && r < NUM_RISCGPR);
     riscgpr_[r] = value;
+    riscgpr_initialized_[r] = true;
 }
 
 // ----------------------------------------------------------------

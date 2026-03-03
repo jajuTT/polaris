@@ -47,7 +47,7 @@ TEST_F(TriscRegsTest, CoreAndThread) {
 // ----------------------------------------------------------------
 
 TEST_F(TriscRegsTest, NonTempReg_AutoZeroOnFirstRead) {
-    // x4 is not in TEMP_REGS and starts as -1 sentinel
+    // x4 is not in TEMP_REGS and has not been written yet
     int32_t val = regs_.read_riscgpr(4);
     EXPECT_EQ(val, 0);
 }
