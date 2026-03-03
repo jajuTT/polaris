@@ -25,6 +25,9 @@ neosim_unit_test(test_risc_reg       test_risc_reg.cpp)
 neosim_unit_test(test_pipe_resource  test_pipe_resource.cpp)
 neosim_unit_test(test_tensix_spl_reg test_tensix_spl_reg.cpp)
 neosim_unit_test(test_trisc_regs     test_trisc_regs.cpp)
+
+# Track 4: L1 memory latency model
+neosim_unit_test(test_scratchpad     test_scratchpad.cpp)
 # neosim_unit_test(test_rob          test_rob.cpp)
 # neosim_unit_test(test_replay       test_replay.cpp)
 # neosim_unit_test(test_scratchpad   test_scratchpad.cpp)
