@@ -104,7 +104,11 @@ bool ThreadUnit::step_fetch(int /*cycle*/)
 {
     // Activate next kernel if none is running.
     if (active_kernel_.empty()) {
-        if (kernel_queue_.empty()) return false;  // nothing to run
+        if (kernel_queue_.empty()) {
+            // If no kernel was ever loaded, mark done so all_done() can fire.
+            if (kernel_instrs_.empty()) fetch_done_ = true;
+            return false;
+        }
         active_kernel_ = kernel_queue_.front();
         kernel_queue_.pop_front();
         pc_           = kernel_ranges_.at(active_kernel_).start_addr;

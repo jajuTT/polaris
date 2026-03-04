@@ -37,6 +37,7 @@ endif()
 # Project layout
 # ----------------------------------------------------------------
 add_subdirectory(src)
+add_subdirectory(examples)
 
 if(BUILD_TESTING)
   enable_testing()
