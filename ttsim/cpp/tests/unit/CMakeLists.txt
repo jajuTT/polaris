@@ -40,3 +40,6 @@ neosim_unit_test(test_rob          test_rob.cpp)
 neosim_unit_test(test_replay       test_replay.cpp)
 neosim_unit_test(test_thread_unit  test_thread_unit.cpp)
 # neosim_unit_test(test_decoder_service test_decoder_service.cpp)
+
+# Track 7: Pipe execution engines
+neosim_unit_test(test_pipe_unit    test_pipe_unit.cpp)

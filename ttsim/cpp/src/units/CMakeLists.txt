@@ -12,4 +12,5 @@ target_sources(neosim PRIVATE
   rob.cpp
   replay.cpp
   thread_unit.cpp
+  pipe_unit.cpp
 )
