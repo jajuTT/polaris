@@ -178,29 +178,37 @@ void TensixCore::load_thread_elf(int               thread_id,
             "TensixCore: failed to open ELF: " + elf_path);
     }
 
-    // Decode the start function (all instructions up to the end of the function)
-    std::vector<isa::Instruction> insns = loader.decode_function(start_fn);
-    if (insns.empty()) {
+    // Decode ALL functions so branches into subroutines find their instructions.
+    isa::FunctionMap all_fns = loader.decode_all();
+    if (all_fns.empty()) {
         throw std::runtime_error(
-            "TensixCore: function '" + start_fn + "' not found or empty in " + elf_path);
+            "TensixCore: no functions found in ELF: " + elf_path);
     }
 
-    // Build InstrMap: address → InstrPtr, and annotate thread/core IDs
+    // Locate the start function to get the initial PC.
+    auto sit = all_fns.find(start_fn);
+    if (sit == all_fns.end() || sit->second.empty()) {
+        throw std::runtime_error(
+            "TensixCore: start function '" + start_fn + "' not found in " + elf_path);
+    }
+    const uint32_t start_addr = sit->second.front().get_addr();
+
+    // Build a unified InstrMap from all functions, annotating thread/core IDs.
     units::ThreadUnit::InstrMap instr_map;
-    uint32_t start_addr = insns.front().get_addr();
-    uint32_t end_addr   = insns.back().get_addr() + 4u; // exclusive upper bound
-
-    for (const auto& ins : insns) {
-        auto ptr = std::make_shared<isa::Instruction>(ins);
-        ptr->set_thread_id(static_cast<uint32_t>(thread_id));
-        ptr->set_core_id(static_cast<uint32_t>(core_id_));
-        instr_map[ptr->get_addr()] = ptr;
+    for (const auto& [fn_name, fn_insns] : all_fns) {
+        for (const auto& ins : fn_insns) {
+            auto ptr = std::make_shared<isa::Instruction>(ins);
+            ptr->set_thread_id(static_cast<uint32_t>(thread_id));
+            ptr->set_core_id(static_cast<uint32_t>(core_id_));
+            instr_map[ptr->get_addr()] = ptr;
+        }
     }
 
+    // end_addr is unused by ThreadUnit (kernel ends at PC=0); pass 0.
     const std::string kernel_name = start_fn + "_t" + std::to_string(thread_id);
 
     auto& tu = threads_[static_cast<std::size_t>(thread_id)]->thread;
-    tu.load_kernel(kernel_name, instr_map, start_addr, end_addr);
+    tu.load_kernel(kernel_name, instr_map, start_addr, 0u);
     tu.enqueue_kernel(kernel_name);
 }
 

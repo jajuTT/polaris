@@ -293,7 +293,11 @@ void PipeUnit::apply_cleanup()
             } else {
                 val = tensix_reg_.cond_write_valid(r, context);
             }
-            tensix_reg_.write_valid(r, context, val, v_mask, b_mask, 3);
+            // mode=3: update valid + rotate bank + clear in_use (requires in_use was set
+            // by CHECK_VALIDS).  When enable_sync=false CHECK_VALIDS is skipped so in_use
+            // is never set — use mode=1 (update valid + rotate bank, skip in_use).
+            const int wv_mode = cfg_.enable_sync ? 3 : 1;
+            tensix_reg_.write_valid(r, context, val, v_mask, b_mask, wv_mode);
         }
     }
 
