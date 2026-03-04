@@ -169,6 +169,7 @@ public:
     int  risc_check_buf_size() const { return static_cast<int>(risc_check_buf_.size()); }
 
     const Rob&         rob()          const { return rob_; }
+    Rob&               mutable_rob()        { return rob_; } ///< for PipeUnit wiring in TensixCore
     const ReplayState& replay_state() const { return replay_; }
 
 private:

@@ -27,6 +27,7 @@ include("${PROJECT_SOURCE_DIR}/cmake/deps/yaml-cpp.cmake")
 include("${PROJECT_SOURCE_DIR}/cmake/deps/spdlog.cmake")
 include("${PROJECT_SOURCE_DIR}/cmake/deps/ttdecode.cmake")
 include("${PROJECT_SOURCE_DIR}/cmake/deps/sparta.cmake")
+include("${PROJECT_SOURCE_DIR}/cmake/deps/nlohmann-json.cmake")
 
 if(BUILD_TESTING)
   include("${PROJECT_SOURCE_DIR}/cmake/deps/googletest.cmake")

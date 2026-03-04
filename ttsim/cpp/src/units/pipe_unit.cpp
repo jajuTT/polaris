@@ -312,11 +312,15 @@ void PipeUnit::apply_cleanup()
     }
 
     // 3. Release dst_pipes for the instruction's thread.
+    // Exception: SEMWAIT holds dst pipes busy — freed later by SEMGET/SEMPOST
+    // (Python doNotFreeDstPipesforInstrs = ["SEMWAIT"]).
     const int tid = thread_of_ins();
-    for (const auto& pname : active_ins_->get_dst_pipes()) {
-        const int pid = find_pipe_id(pname);
-        if (pid >= 0) {
-            pipe_resource_.set_rsrc_state(pid, tid, 0);
+    if (active_ins_->get_op() != "SEMWAIT") {
+        for (const auto& pname : active_ins_->get_dst_pipes()) {
+            const int pid = find_pipe_id(pname);
+            if (pid >= 0) {
+                pipe_resource_.set_rsrc_state(pid, tid, 0);
+            }
         }
     }
 

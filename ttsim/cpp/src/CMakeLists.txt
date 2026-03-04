@@ -34,9 +34,11 @@ target_link_libraries(neosim PUBLIC
   deps::sparta
   deps::yaml-cpp
   deps::spdlog
+  deps::nlohmann_json
 )
 
 add_subdirectory(isa)
 add_subdirectory(units)
 add_subdirectory(risc)
-# Track 8:  add_subdirectory(core)
+add_subdirectory(config)  # Track 8: SimConfig JSON loader
+add_subdirectory(core)    # Track 8: TensixCore + NeoSim
