@@ -110,10 +110,10 @@ TEST_F(PipeUnitTest, Compute_Completes_AfterPipeDelay)
     ins->set_pipe_delay(2);
     push_to_rob_and_pipe(*pipe, ins);
 
-    auto r0 = pipe.step(0);
+    auto r0 = pipe->step(0);
     EXPECT_EQ(r0.completed_ins, nullptr) << "should not complete on step 0";
 
-    auto r1 = pipe.step(1);
+    auto r1 = pipe->step(1);
     EXPECT_NE(r1.completed_ins, nullptr) << "should complete on step 1";
 }
 
@@ -125,7 +125,7 @@ TEST_F(PipeUnitTest, Compute_OneDelay_CompletesInStep)
     ins->set_pipe_delay(1);
     push_to_rob_and_pipe(*pipe, ins);
 
-    auto r = pipe.step(0);
+    auto r = pipe->step(0);
     EXPECT_NE(r.completed_ins, nullptr) << "should complete on step 0";
 }
 
@@ -146,7 +146,7 @@ TEST_F(PipeUnitTest, Compute_SyncDisabled_SkipsValidCheck)
     tensix_reg_->write_cond_valid(3, 0, /*cond_chk=*/1, /*cond_wri=*/0);
 
     push_to_rob_and_pipe(*pipe, ins);
-    auto r = pipe.step(0);
+    auto r = pipe->step(0);
     EXPECT_NE(r.completed_ins, nullptr) << "sync disabled: should complete immediately";
 }
 
@@ -171,7 +171,7 @@ TEST_F(PipeUnitTest, Compute_ValidCheck_StallsWhenNotValid)
     push_to_rob_and_pipe(*pipe, ins);
 
     // step(0): CHECK_VALIDS → valid[3][bank0]=0 ≠ 1 → stall
-    auto r0 = pipe.step(0);
+    auto r0 = pipe->step(0);
     EXPECT_EQ(r0.completed_ins, nullptr) << "should stall when valid not set";
 
     // Write val=1 to both banks so the check passes regardless of curr_bank.
@@ -181,7 +181,7 @@ TEST_F(PipeUnitTest, Compute_ValidCheck_StallsWhenNotValid)
     tensix_reg_->write_valid(3, 0, 1, /*v_mask=*/true, /*b_mask=*/true, 1);
 
     // step(1): CHECK_VALIDS → valid[3][bank0]=1 == 1, not in_use → pass → complete
-    auto r1 = pipe.step(1);
+    auto r1 = pipe->step(1);
     EXPECT_NE(r1.completed_ins, nullptr) << "should complete after valid set";
 }
 
@@ -197,7 +197,7 @@ TEST_F(PipeUnitTest, Compute_Cleanup_FreesExePipe)
     pipe_res_->set_rsrc_state(0, 0, 1);
 
     push_to_rob_and_pipe(*pipe, ins);
-    auto r = pipe.step(0);
+    auto r = pipe->step(0);
     ASSERT_NE(r.completed_ins, nullptr);
 
     EXPECT_EQ(pipe_res_->read_rsrc_state(0, 0), 0) << "exe_pipe should be freed";
@@ -212,7 +212,7 @@ TEST_F(PipeUnitTest, Compute_Cleanup_RemovesFromRob)
     push_to_rob_and_pipe(*pipe, ins);
     EXPECT_EQ(rob_->size(), 1);
 
-    auto r = pipe.step(0);
+    auto r = pipe->step(0);
     ASSERT_NE(r.completed_ins, nullptr);
     EXPECT_TRUE(rob_->empty()) << "ROB should be empty after completion";
 }
@@ -235,7 +235,7 @@ TEST_F(PipeUnitTest, Compute_Cleanup_UpdatesValidBit)
 
     int valid_before = tensix_reg_->read_valid(3, /*context=*/1);
     push_to_rob_and_pipe(*pipe, ins);
-    pipe.step(0);
+    pipe->step(0);
 
     // After cleanup, valid[3] should have been updated via write_valid
     // (The exact new value depends on bank rotation; we just verify it changed
@@ -263,12 +263,12 @@ TEST_F(PipeUnitTest, Unpack_HasMemory_WaitsL1Latency)
     push_to_rob_and_pipe(*pipe, ins);
 
     // Steps 0, 1, 2: L1_READ counting down (latency_rd=3 → cycles_remaining_=2)
-    EXPECT_EQ(pipe.step(0).completed_ins, nullptr) << "step 0: L1 latency";
-    EXPECT_EQ(pipe.step(1).completed_ins, nullptr) << "step 1: L1 latency";
-    EXPECT_EQ(pipe.step(2).completed_ins, nullptr) << "step 2: L1 latency complete, next phase";
+    EXPECT_EQ(pipe->step(0).completed_ins, nullptr) << "step 0: L1 latency";
+    EXPECT_EQ(pipe->step(1).completed_ins, nullptr) << "step 1: L1 latency";
+    EXPECT_EQ(pipe->step(2).completed_ins, nullptr) << "step 2: L1 latency complete, next phase";
 
     // Step 3: REG_WRITE (cycles=0, falls through) → CLEANUP → done
-    auto r = pipe.step(3);
+    auto r = pipe->step(3);
     EXPECT_NE(r.completed_ins, nullptr) << "step 3: should complete";
 }
 
@@ -281,7 +281,7 @@ TEST_F(PipeUnitTest, Unpack_NoMemory_PopTiles_SkipsL1)
     ins->set_pipe_delay(0);
 
     push_to_rob_and_pipe(*pipe, ins);
-    auto r = pipe.step(0);
+    auto r = pipe->step(0);
     EXPECT_NE(r.completed_ins, nullptr) << "POP_TILES: no L1, completes immediately";
 }
 
@@ -299,12 +299,12 @@ TEST_F(PipeUnitTest, Unpack_Scratchpad_SubmitAndComplete)
     push_to_rob_and_pipe(*pipe, ins);
 
     // After step 0: L1_READ entered → scratchpad.submit() called → 1 in flight
-    pipe.step(0);
+    pipe->step(0);
     EXPECT_EQ(scratchpad_->num_in_flight(), 1) << "1 in flight after submit";
 
     // Step 1, 2: still counting down
-    pipe.step(1);
-    pipe.step(2);  // L1_READ countdown = 0 → complete() called at end of step 2
+    pipe->step(1);
+    pipe->step(2);  // L1_READ countdown = 0 → complete() called at end of step 2
 
     EXPECT_EQ(scratchpad_->num_in_flight(), 0) << "0 in flight after complete";
 }
@@ -323,10 +323,10 @@ TEST_F(PipeUnitTest, Pack_FEDelay_ThreeCycles)
 
     push_to_rob_and_pipe(*pipe, ins);
 
-    EXPECT_EQ(pipe.step(0).completed_ins, nullptr) << "step 0: in FE_DELAY";
-    EXPECT_EQ(pipe.step(1).completed_ins, nullptr) << "step 1: in FE_DELAY";
-    EXPECT_EQ(pipe.step(2).completed_ins, nullptr) << "step 2: FE_DELAY→next phase";
-    auto r = pipe.step(3);
+    EXPECT_EQ(pipe->step(0).completed_ins, nullptr) << "step 0: in FE_DELAY";
+    EXPECT_EQ(pipe->step(1).completed_ins, nullptr) << "step 1: in FE_DELAY";
+    EXPECT_EQ(pipe->step(2).completed_ins, nullptr) << "step 2: FE_DELAY→next phase";
+    auto r = pipe->step(3);
     EXPECT_NE(r.completed_ins, nullptr) << "step 3: CLEANUP done";
 }
 
@@ -343,16 +343,16 @@ TEST_F(PipeUnitTest, Pack_HasMemory_L1WriteLatency)
     push_to_rob_and_pipe(*pipe, ins);
 
     // Steps 0, 1, 2: FE_DELAY (cycles_remaining_=2)
-    EXPECT_EQ(pipe.step(0).completed_ins, nullptr);
-    EXPECT_EQ(pipe.step(1).completed_ins, nullptr);
-    EXPECT_EQ(pipe.step(2).completed_ins, nullptr);
+    EXPECT_EQ(pipe->step(0).completed_ins, nullptr);
+    EXPECT_EQ(pipe->step(1).completed_ins, nullptr);
+    EXPECT_EQ(pipe->step(2).completed_ins, nullptr);
 
     // Step 3: FE_DELAY→CHECK_VALIDS(skip)→REG_READ→L1_WRITE (latency=1, cycles_remaining_=0)
     // L1_WRITE completes (cycles_remaining_=0), enter CLEANUP, RETURN null
-    EXPECT_EQ(pipe.step(3).completed_ins, nullptr) << "L1_WRITE entered, RETURN null";
+    EXPECT_EQ(pipe->step(3).completed_ins, nullptr) << "L1_WRITE entered, RETURN null";
 
     // Step 4: CLEANUP → done
-    auto r = pipe.step(4);
+    auto r = pipe->step(4);
     EXPECT_NE(r.completed_ins, nullptr) << "step 4: done after L1_WRITE";
 }
 
@@ -366,10 +366,10 @@ TEST_F(PipeUnitTest, Pack_NoMemory_PushTiles)
 
     push_to_rob_and_pipe(*pipe, ins);
 
-    EXPECT_EQ(pipe.step(0).completed_ins, nullptr);
-    EXPECT_EQ(pipe.step(1).completed_ins, nullptr);
-    EXPECT_EQ(pipe.step(2).completed_ins, nullptr);  // FE_DELAY→next
-    auto r = pipe.step(3);
+    EXPECT_EQ(pipe->step(0).completed_ins, nullptr);
+    EXPECT_EQ(pipe->step(1).completed_ins, nullptr);
+    EXPECT_EQ(pipe->step(2).completed_ins, nullptr);  // FE_DELAY→next
+    auto r = pipe->step(3);
     EXPECT_NE(r.completed_ins, nullptr);
 }
 
@@ -380,7 +380,7 @@ TEST_F(PipeUnitTest, Pack_NoMemory_PushTiles)
 TEST_F(PipeUnitTest, IsIdle_TrueInitially)
 {
     auto pipe = make_pipe(PipeUnit::Flavor::COMPUTE);
-    EXPECT_TRUE(pipe.is_idle());
+    EXPECT_TRUE(pipe->is_idle());
 }
 
 TEST_F(PipeUnitTest, BufSize_AfterPush)
@@ -392,20 +392,20 @@ TEST_F(PipeUnitTest, BufSize_AfterPush)
     auto ins2 = make_ins("SFPIADD", 2);
     ins2->set_pipe_delay(1);
 
-    EXPECT_EQ(pipe.buf_size(), 0);
+    EXPECT_EQ(pipe->buf_size(), 0);
 
     rob_->append(ins1);
     ins1->set_ins_id(0);
-    pipe.push(ins1);
-    EXPECT_EQ(pipe.buf_size(), 1);
+    pipe->push(ins1);
+    EXPECT_EQ(pipe->buf_size(), 1);
 
     rob_->append(ins2);
     ins2->set_ins_id(1);
-    pipe.push(ins2);
-    EXPECT_EQ(pipe.buf_size(), 2);
+    pipe->push(ins2);
+    EXPECT_EQ(pipe->buf_size(), 2);
 
     // After step, first instruction is consumed (moves to active)
-    pipe.step(0);
+    pipe->step(0);
     // buf_size should drop by 1 as ins1 became active
-    EXPECT_LE(pipe.buf_size(), 1);
+    EXPECT_LE(pipe->buf_size(), 1);
 }
