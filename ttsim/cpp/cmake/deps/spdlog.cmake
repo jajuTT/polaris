@@ -7,30 +7,51 @@ include_guard(GLOBAL)
 option(FETCH_DEPS "Allow fetching dependencies at configure time" ON)
 set(SPDLOG_GIT_TAG "v1.15.0" CACHE STRING "Git tag/branch/commit to fetch for spdlog")
 
-set(_THIRD_PARTY_DIR "${CMAKE_SOURCE_DIR}/__third_party")
+# 1) Check if already available (e.g., from previous FetchContent in this build tree)
+set(_SPDLOG_AVAILABLE FALSE)
+foreach(_cand spdlog::spdlog spdlog)
+  if(TARGET ${_cand})
+    set(_SPDLOG_AVAILABLE TRUE)
+    message(STATUS "spdlog: already configured in this build")
+    break()
+  endif()
+endforeach()
 
-# 1) Try __third_party and system paths
-if(EXISTS "${_THIRD_PARTY_DIR}")
-  list(APPEND CMAKE_PREFIX_PATH "${_THIRD_PARTY_DIR}")
-  file(GLOB _spdlog_prefixes
-    "${_THIRD_PARTY_DIR}/spdlog*"
-  )
-  foreach(_p IN LISTS _spdlog_prefixes)
-    if(IS_DIRECTORY "${_p}")
-      list(APPEND CMAKE_PREFIX_PATH
-        "${_p}"
-        "${_p}/lib/cmake/spdlog"
-        "${_p}/lib64/cmake/spdlog"
-        "${_p}/cmake"
-      )
-    endif()
-  endforeach()
+# 2) Try system/toolchain installation (skip if already available)
+if(NOT _SPDLOG_AVAILABLE)
+  set(_THIRD_PARTY_DIR "${CMAKE_SOURCE_DIR}/__third_party")
+
+  # Add validated __third_party subdirectories to search path
+  # Exclude FetchContent artifacts (-build, -src, -subbuild suffixes)
+  if(EXISTS "${_THIRD_PARTY_DIR}")
+    file(GLOB _spdlog_prefixes
+      "${_THIRD_PARTY_DIR}/spdlog"
+      "${_THIRD_PARTY_DIR}/spdlog-[0-9]*"
+    )
+    foreach(_p IN LISTS _spdlog_prefixes)
+      # Skip FetchContent artifacts
+      if(IS_DIRECTORY "${_p}" AND
+         NOT _p MATCHES ".*-(build|src|subbuild)$")
+        list(APPEND CMAKE_PREFIX_PATH
+          "${_p}"
+          "${_p}/lib/cmake/spdlog"
+          "${_p}/lib64/cmake/spdlog"
+          "${_p}/cmake"
+        )
+      endif()
+    endforeach()
+  endif()
+
+  find_package(spdlog CONFIG QUIET)
+
+  if(spdlog_FOUND AND (TARGET spdlog::spdlog OR TARGET spdlog))
+    set(_SPDLOG_AVAILABLE TRUE)
+    message(STATUS "Using system/toolchain-provided spdlog")
+  endif()
 endif()
 
-find_package(spdlog CONFIG QUIET)
-
-# 2) Fallback: fetch from Git
-if(NOT spdlog_FOUND)
+# 3) Fallback: fetch from Git
+if(NOT _SPDLOG_AVAILABLE)
   if(NOT FETCH_DEPS)
     message(FATAL_ERROR
       "spdlog not found. Provide it via your package manager "
@@ -50,11 +71,15 @@ if(NOT spdlog_FOUND)
   )
   FetchContent_MakeAvailable(spdlog)
   message(STATUS "Fetched spdlog from Git (tag: ${SPDLOG_GIT_TAG})")
-else()
-  message(STATUS "Using system/toolchain-provided spdlog")
+  set(_SPDLOG_AVAILABLE TRUE)
 endif()
 
-# 3) Provide stable alias: deps::spdlog
+# 4) Sanity check: verify target is available
+if(NOT _SPDLOG_AVAILABLE)
+  message(FATAL_ERROR "spdlog should have been available but wasn't found or fetched.")
+endif()
+
+# 5) Provide stable alias: deps::spdlog
 set(_SPDLOG_TARGET "")
 foreach(_cand spdlog::spdlog spdlog)
   if(TARGET ${_cand})
