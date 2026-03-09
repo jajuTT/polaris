@@ -20,6 +20,22 @@ endforeach()
 # 2) Try system/toolchain installation (skip if already available)
 if(NOT _SPDLOG_AVAILABLE)
   set(_THIRD_PARTY_DIR "${CMAKE_SOURCE_DIR}/__third_party")
+  set(_SPDLOG_SEARCH_PATHS "")
+
+  # Collect FetchContent artifact directories to explicitly exclude
+  set(_SPDLOG_IGNORE_PATHS "")
+  if(EXISTS "${_THIRD_PARTY_DIR}")
+    file(GLOB _spdlog_artifacts
+      "${_THIRD_PARTY_DIR}/spdlog-build"
+      "${_THIRD_PARTY_DIR}/spdlog-src"
+      "${_THIRD_PARTY_DIR}/spdlog-subbuild"
+    )
+    foreach(_artifact IN LISTS _spdlog_artifacts)
+      if(IS_DIRECTORY "${_artifact}")
+        list(APPEND _SPDLOG_IGNORE_PATHS "${_artifact}")
+      endif()
+    endforeach()
+  endif()
 
   # Add validated __third_party subdirectories to search path
   # Exclude FetchContent artifacts (-build, -src, -subbuild suffixes)
@@ -32,7 +48,7 @@ if(NOT _SPDLOG_AVAILABLE)
       # Skip FetchContent artifacts
       if(IS_DIRECTORY "${_p}" AND
          NOT _p MATCHES ".*-(build|src|subbuild)$")
-        list(APPEND CMAKE_PREFIX_PATH
+        list(APPEND _SPDLOG_SEARCH_PATHS
           "${_p}"
           "${_p}/lib/cmake/spdlog"
           "${_p}/lib64/cmake/spdlog"
@@ -42,11 +58,39 @@ if(NOT _SPDLOG_AVAILABLE)
     endforeach()
   endif()
 
-  find_package(spdlog CONFIG QUIET)
+  # Temporarily suppress config file errors and exclude broken paths
+  set(_ORIG_CMAKE_FIND_PACKAGE_WARN_NO_MODULE ${CMAKE_FIND_PACKAGE_WARN_NO_MODULE})
+  set(CMAKE_FIND_PACKAGE_WARN_NO_MODULE OFF)
+  set(_ORIG_CMAKE_MESSAGE_LOG_LEVEL ${CMAKE_MESSAGE_LOG_LEVEL})
+  set(CMAKE_MESSAGE_LOG_LEVEL ERROR)  # Suppress warnings from broken configs
+  set(_ORIG_CMAKE_IGNORE_PATH "${CMAKE_IGNORE_PATH}")
+  list(APPEND CMAKE_IGNORE_PATH ${_SPDLOG_IGNORE_PATHS})
 
+  # Search explicitly in our validated paths, plus system locations
+  find_package(spdlog CONFIG QUIET
+    PATHS ${_SPDLOG_SEARCH_PATHS}
+    NO_DEFAULT_PATH  # Only search our explicit paths first
+  )
+  # If not found in explicit paths, try system defaults
+  if(NOT spdlog_FOUND)
+    find_package(spdlog CONFIG QUIET)
+  endif()
+
+  # Restore message settings
+  set(CMAKE_FIND_PACKAGE_WARN_NO_MODULE ${_ORIG_CMAKE_FIND_PACKAGE_WARN_NO_MODULE})
+  set(CMAKE_MESSAGE_LOG_LEVEL ${_ORIG_CMAKE_MESSAGE_LOG_LEVEL})
+  set(CMAKE_IGNORE_PATH "${_ORIG_CMAKE_IGNORE_PATH}")
+
+  # Verify the found package provides the expected target
+  # Note: Even if spdlog_FOUND is TRUE, we need to check if targets are actually available
+  # (config files from incomplete builds may claim success but lack targets)
   if(spdlog_FOUND AND (TARGET spdlog::spdlog OR TARGET spdlog))
     set(_SPDLOG_AVAILABLE TRUE)
     message(STATUS "Using system/toolchain-provided spdlog")
+  elseif(spdlog_FOUND)
+    # Package config found but targets are missing - likely a broken installation
+    message(STATUS "spdlog config found but targets unavailable (possibly incomplete build); will fetch from Git")
+    set(spdlog_FOUND FALSE)
   endif()
 endif()
 

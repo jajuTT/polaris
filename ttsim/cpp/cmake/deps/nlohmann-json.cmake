@@ -30,6 +30,25 @@ endforeach()
 # 2) Try system/toolchain installation (skip if already available)
 if(NOT _NLOHMANN_JSON_AVAILABLE AND USE_SYSTEM_NLOHMANN_JSON)
   set(_THIRD_PARTY_DIR "${CMAKE_SOURCE_DIR}/__third_party")
+  set(_NLOHMANN_JSON_SEARCH_PATHS "")
+
+  # Collect FetchContent artifact directories to explicitly exclude
+  set(_NLOHMANN_JSON_IGNORE_PATHS "")
+  if(EXISTS "${_THIRD_PARTY_DIR}")
+    file(GLOB _nlohmann_json_artifacts
+      "${_THIRD_PARTY_DIR}/nlohmann_json-build"
+      "${_THIRD_PARTY_DIR}/nlohmann_json-src"
+      "${_THIRD_PARTY_DIR}/nlohmann_json-subbuild"
+      "${_THIRD_PARTY_DIR}/nlohmann-json-build"
+      "${_THIRD_PARTY_DIR}/nlohmann-json-src"
+      "${_THIRD_PARTY_DIR}/nlohmann-json-subbuild"
+    )
+    foreach(_artifact IN LISTS _nlohmann_json_artifacts)
+      if(IS_DIRECTORY "${_artifact}")
+        list(APPEND _NLOHMANN_JSON_IGNORE_PATHS "${_artifact}")
+      endif()
+    endforeach()
+  endif()
 
   # Add validated __third_party subdirectories to search path
   # Exclude FetchContent artifacts (-build, -src, -subbuild suffixes)
@@ -43,7 +62,7 @@ if(NOT _NLOHMANN_JSON_AVAILABLE AND USE_SYSTEM_NLOHMANN_JSON)
       # Skip FetchContent artifacts
       if(IS_DIRECTORY "${_p}" AND
          NOT _p MATCHES ".*-(build|src|subbuild)$")
-        list(APPEND CMAKE_PREFIX_PATH
+        list(APPEND _NLOHMANN_JSON_SEARCH_PATHS
           "${_p}"
           "${_p}/lib/cmake/nlohmann_json"
           "${_p}/lib64/cmake/nlohmann_json"
@@ -53,21 +72,51 @@ if(NOT _NLOHMANN_JSON_AVAILABLE AND USE_SYSTEM_NLOHMANN_JSON)
     endforeach()
   endif()
 
+  # Temporarily suppress config file errors and exclude broken paths
+  set(_ORIG_CMAKE_FIND_PACKAGE_WARN_NO_MODULE ${CMAKE_FIND_PACKAGE_WARN_NO_MODULE})
+  set(CMAKE_FIND_PACKAGE_WARN_NO_MODULE OFF)
+  set(_ORIG_CMAKE_MESSAGE_LOG_LEVEL ${CMAKE_MESSAGE_LOG_LEVEL})
+  set(CMAKE_MESSAGE_LOG_LEVEL ERROR)  # Suppress warnings from broken configs
+  set(_ORIG_CMAKE_IGNORE_PATH "${CMAKE_IGNORE_PATH}")
+  list(APPEND CMAKE_IGNORE_PATH ${_NLOHMANN_JSON_IGNORE_PATHS})
+
+  # Search explicitly in our validated paths, plus system locations
+  # Note: We don't use NO_DEFAULT_PATH to allow system package managers
   if(NLOHMANN_JSON_MIN_VERSION)
-    find_package(nlohmann_json ${NLOHMANN_JSON_MIN_VERSION} CONFIG QUIET)
+    find_package(nlohmann_json ${NLOHMANN_JSON_MIN_VERSION} CONFIG QUIET
+      PATHS ${_NLOHMANN_JSON_SEARCH_PATHS}
+      NO_DEFAULT_PATH  # Only search our explicit paths first
+    )
+    # If not found in explicit paths, try system defaults
+    if(NOT nlohmann_json_FOUND)
+      find_package(nlohmann_json ${NLOHMANN_JSON_MIN_VERSION} CONFIG QUIET)
+    endif()
   else()
-    find_package(nlohmann_json CONFIG QUIET)
+    find_package(nlohmann_json CONFIG QUIET
+      PATHS ${_NLOHMANN_JSON_SEARCH_PATHS}
+      NO_DEFAULT_PATH  # Only search our explicit paths first
+    )
+    # If not found in explicit paths, try system defaults
+    if(NOT nlohmann_json_FOUND)
+      find_package(nlohmann_json CONFIG QUIET)
+    endif()
   endif()
 
+  # Restore message settings
+  set(CMAKE_FIND_PACKAGE_WARN_NO_MODULE ${_ORIG_CMAKE_FIND_PACKAGE_WARN_NO_MODULE})
+  set(CMAKE_MESSAGE_LOG_LEVEL ${_ORIG_CMAKE_MESSAGE_LOG_LEVEL})
+  set(CMAKE_IGNORE_PATH "${_ORIG_CMAKE_IGNORE_PATH}")
+
   # Verify the found package provides the expected target
-  if(nlohmann_json_FOUND)
-    if(TARGET nlohmann_json::nlohmann_json OR TARGET nlohmann_json)
-      set(_NLOHMANN_JSON_AVAILABLE TRUE)
-      message(STATUS "Using system/toolchain-provided nlohmann_json")
-    else()
-      message(WARNING "nlohmann_json package found but provides no valid targets; will fetch from Git")
-      set(nlohmann_json_FOUND FALSE)
-    endif()
+  # Note: Even if nlohmann_json_FOUND is TRUE, we need to check if targets are actually available
+  # (config files from incomplete builds may claim success but lack targets)
+  if(nlohmann_json_FOUND AND (TARGET nlohmann_json::nlohmann_json OR TARGET nlohmann_json))
+    set(_NLOHMANN_JSON_AVAILABLE TRUE)
+    message(STATUS "Using system/toolchain-provided nlohmann_json")
+  elseif(nlohmann_json_FOUND)
+    # Package config found but targets are missing - likely a broken installation
+    message(STATUS "nlohmann_json config found but targets unavailable (possibly incomplete build); will fetch from Git")
+    set(nlohmann_json_FOUND FALSE)
   endif()
 endif()
 
